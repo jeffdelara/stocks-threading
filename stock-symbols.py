@@ -5,10 +5,14 @@ import re
 import time 
 import concurrent.futures
 import xmltodict
+import redis 
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# load me redis
+r = redis.Redis(host='localhost', port='6379', db=0)
 
 # input : rows
 # output : dict of stocks
@@ -43,30 +47,40 @@ def get_page(page):
 def get_stock_quote(symbol):
     print(f'Getting quote for {symbol}...')
     url = os.getenv('API')
-    response = requests.get(url + str(symbol))
-    data = xmltodict.parse(response.content)
-    d = data["tstock"]["security"]
+    while(True):
+        response = requests.get(url + str(symbol))
+        data = xmltodict.parse(response.content)
+        d = data["tstock"]["security"]
 
-    stock = {
-        "symbol"    : d["@code"], 
-        "name"      : d["secname"], 
-        "info"      : {
-            "date"      : d["stockinfo"]["@logupdate"],
-            "last"      : d["stockinfo"]["last"], 
-            "open"      : d["stockinfo"]["open"],
-            "high"      : d["stockinfo"]["high"], 
-            "low"       : d["stockinfo"]["low"],
-            "previous"  : d["stockinfo"]["prevclose"],
-            "diff"      : d["stockinfo"]["diff"],
-            "change"    : d["stockinfo"]["change"],
-            "volume"    : d["stockinfo"]["volume"],
-            "value"     : d["stockinfo"]["value"], 
-            "high-52"   : d["stockinfo"]["wikhi52"],
-            "low-52"    : d["stockinfo"]["wiklo52"]
+        stock = {
+            "symbol"    : d["@code"], 
+            "name"      : d["secname"], 
+            "info"      : {
+                "date"      : d["stockinfo"]["@logupdate"],
+                "last"      : d["stockinfo"]["last"], 
+                "open"      : d["stockinfo"]["open"],
+                "high"      : d["stockinfo"]["high"], 
+                "low"       : d["stockinfo"]["low"],
+                "previous"  : d["stockinfo"]["prevclose"],
+                "diff"      : d["stockinfo"]["diff"],
+                "change"    : d["stockinfo"]["change"],
+                "volume"    : d["stockinfo"]["volume"],
+                "value"     : d["stockinfo"]["value"], 
+                "high-52"   : d["stockinfo"]["wikhi52"],
+                "low-52"    : d["stockinfo"]["wiklo52"]
+            }
         }
-    }
 
-    return stock
+        # TODO: Check if this stock changed information in cache
+        # if yes:
+        #  publish to redis 
+        r.publish(stock["symbol"], stock["symbol"] + ": last:" + stock["info"]["last"] + " volume: " + stock["info"]["volume"])
+        # if no: 
+        #  skip
+
+        # sleep
+        time.sleep(3)
+        # return stock
 
 response = requests.get(os.getenv('EDGE_SYMBOLS'))
 soup = BeautifulSoup(response.text, 'html.parser')
@@ -81,6 +95,7 @@ stocks = []
 #     print(f'Loading page {page} of {pages}')
 #     stocks.extend(get_page(page))
 
+# Concurrently get all stock symbol from PSE and save to stocks array
 with concurrent.futures.ThreadPoolExecutor() as executor: 
     list_of_pages = [page + 1 for page in range(pages)]
 
@@ -91,10 +106,23 @@ with concurrent.futures.ThreadPoolExecutor() as executor:
     for f in concurrent.futures.as_completed(results):
         stocks.extend(f.result())
 
+# testing purposes
+# stocks = [
+#     { "symbol" : "MONDE" }, 
+#     { "symbol" : "CNVRG" }, 
+#     { "symbol" : "SCC" }, 
+#     { "symbol" : "MBT" },
+#     { "symbol" : "URC" }
+# ]
+
 # Get quotes of each one
-with concurrent.futures.ThreadPoolExecutor() as executor: 
+workers = len(stocks + 10)
+with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor: 
     results = [executor.submit(get_stock_quote, stock["symbol"]) for stock in stocks]
 
-    for f in concurrent.futures.as_completed(results): 
-        print(f.result())
+    # for f in concurrent.futures.as_completed(results): 
+    #     print(f.result())
+
+    # for f in concurrent.futures.as_completed(results): 
+    #     f.add_done_callback()
 
