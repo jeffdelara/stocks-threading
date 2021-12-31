@@ -6,6 +6,7 @@ import time
 import concurrent.futures
 import xmltodict
 import redis 
+import json
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -71,10 +72,13 @@ def get_stock_quote(symbol):
             }
         }
 
+        r.set(stock["symbol"], json.dumps(stock))
+
         # TODO: Check if this stock changed information in cache
         # if yes:
         #  publish to redis 
-        r.publish(stock["symbol"], stock["symbol"] + ": last:" + stock["info"]["last"] + " volume: " + stock["info"]["volume"])
+        # r.publish(stock["symbol"], json.dumps(stock))
+        # r.publish(stock["symbol"], stock["symbol"] + ": last:" + stock["info"]["last"] + " volume: " + stock["info"]["volume"])
         # if no: 
         #  skip
 
@@ -90,10 +94,6 @@ max_pages = re.search(r"\D[0-9]\D*([0-9]+)\D*[0-9]+\D", count.text)
 pages = int(max_pages.group(1))
 
 stocks = []
-
-# for page in range(1, pages+1):  
-#     print(f'Loading page {page} of {pages}')
-#     stocks.extend(get_page(page))
 
 # Concurrently get all stock symbol from PSE and save to stocks array
 with concurrent.futures.ThreadPoolExecutor() as executor: 
@@ -115,14 +115,10 @@ with concurrent.futures.ThreadPoolExecutor() as executor:
 #     { "symbol" : "URC" }
 # ]
 
+
 # Get quotes of each one
-workers = len(stocks + 10)
+workers = len(stocks) + 10
 with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor: 
     results = [executor.submit(get_stock_quote, stock["symbol"]) for stock in stocks]
 
-    # for f in concurrent.futures.as_completed(results): 
-    #     print(f.result())
-
-    # for f in concurrent.futures.as_completed(results): 
-    #     f.add_done_callback()
 
