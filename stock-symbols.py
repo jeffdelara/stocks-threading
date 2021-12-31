@@ -1,4 +1,4 @@
-# Get a list of all stock symbols
+# Get a list of all stock symbols and their corresponding price info
 import requests
 import os
 import re 
